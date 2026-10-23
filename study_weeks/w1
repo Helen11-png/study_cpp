@@ -41,3 +41,99 @@ x & (x - 1) сбрасывает младший единичный бит.
 x & -x выделяет младший единичный бит.
 __builtin_popcount(x) считает единичные биты.
 1 << i без ll переполняется на i ≥ 31: для больших используй 1LL << i.
+
+#include <algorithm>
+#include <cstddef>
+#include <utility>
+
+class Buffer {
+    int* data_;
+    std::size_t size_;
+public:
+    explicit Buffer(std::size_t n = 0)
+        : data_(n ? new int[n]() : nullptr), size_(n) {}   // () обнуляет элементы
+
+    ~Buffer() { delete[] data_; }                          // 1. деструктор
+
+    Buffer(const Buffer& other)                            // 2. копирующий конструктор
+        : data_(other.size_ ? new int[other.size_] : nullptr), size_(other.size_) {
+        std::copy(other.data_, other.data_ + size_, data_);
+    }
+
+    Buffer& operator=(const Buffer& other) {               // 3. копирующее присваивание
+        if (this != &other) {
+            Buffer tmp(other);                             // копия...
+            std::swap(data_, tmp.data_);                   // ...и обмен
+            std::swap(size_, tmp.size_);                   // старое умрёт вместе с tmp
+        }
+        return *this;
+    }
+
+    Buffer(Buffer&& other) noexcept                        // 4. перемещающий конструктор
+        : data_(other.data_), size_(other.size_) {
+        other.data_ = nullptr;                             // забрали, у источника обнулили
+        other.size_ = 0;
+    }
+
+    Buffer& operator=(Buffer&& other) noexcept {           // 5. перемещающее присваивание
+        if (this != &other) {
+            delete[] data_;
+            data_ = other.data_;
+            size_ = other.size_;
+            other.data_ = nullptr;
+            other.size_ = 0;
+        }
+        return *this;
+    }
+
+    int& operator[](std::size_t i) { return data_[i]; }
+    const int& operator[](std::size_t i) const { return data_[i]; }
+    std::size_t size() const { return size_; }
+};
+
+int main() {
+    Buffer b(5);
+    for (std::size_t i = 0; i < b.size(); ++i) b[i] = 1;   // а не b += 1
+    Buffer c = b;                  // копирование
+    Buffer d = std::move(b);       // перемещение; b теперь пустой
+}
+
+
+#include <algorithm>
+#include <cstddef>
+#include <memory>
+
+class Buffer {
+    std::unique_ptr<int[]> data_;
+    std::size_t size_;
+public:
+    explicit Buffer(std::size_t n = 0)
+        : data_(std::make_unique<int[]>(n)), size_(n) {}   // нули по умолчанию
+
+    // деструктор — не нужен, unique_ptr сам делает delete[]
+    // перемещение — не нужно, компилятор сгенерирует (unique_ptr умеет move)
+
+    Buffer(const Buffer& other)                            // копирование хотим — пишем сами
+        : data_(std::make_unique<int[]>(other.size_)), size_(other.size_) {
+        std::copy(other.data_.get(), other.data_.get() + size_, data_.get());
+    }
+    Buffer& operator=(const Buffer& other) {
+        if (this != &other) {
+            Buffer tmp(other);
+            std::swap(data_, tmp.data_);
+            std::swap(size_, tmp.size_);
+        }
+        return *this;
+    }
+
+    int& operator[](std::size_t i) { return data_[i]; }
+    std::size_t size() const { return size_; }
+};
+
+Зачем noexcept у
+перемещающего
+конструктора?
+При перевыделении vector использует std::move_if_noexcept: если move
+может бросить исключение, а копирование доступно, элементы переезжают
+копированием, чтобы сохранить строгую гарантию. Без noexcept выигрыш
+от move пропадает.
